@@ -1,7 +1,17 @@
 import random
 import sqlite3
 
+from collections import OrderedDict
+
 conn = sqlite3.connect("pyaudio.db")
+
+def get_ordered_dict_by_key(obj):
+    ordered_keys = list(obj.keys())
+    ordered_keys.sort()
+    ordered_dict = OrderedDict()
+    for key in ordered_keys:
+        ordered_dict[key] = obj[key]
+    return ordered_dict
 
 def create_new_node_network_sqlite():
     conn.execute("DROP TABLE IF EXISTS nodes")
@@ -23,9 +33,9 @@ def create_new_node_network_sqlite():
             (id, value)
             VALUES({0}, 0)'''.format(i))
         new_nodes.append({
-            "_id": str(i),
-            "output_connections": [],
-            "input_connections": [],
+            "id": i,
+            "output_connections": OrderedDict(),
+            "input_connections": OrderedDict(),
         })
     conn.commit()
     conn_id = 0
@@ -45,22 +55,32 @@ def init_worker_sqlite(worker_id, num_workers):
     owned_nodes = {}
     for i in range(num_nodes):
         if (i % num_workers) == worker_id:
-            owned_nodes[i] = { "output_connections": {} }
+            owned_nodes[i] = {
+                "input_connections": {},
+                "output_connections": {}
+            }
     sql_node_ids = "("
     sql_node_ids += ", ".join([str(a) for a in owned_nodes.keys()])
     sql_node_ids += ")"
     res = conn.execute('''SELECT
-        nodes.id, connections.input_node, connections.output_node
+        nodes.id, nodes.value, connections.input_node, connections.output_node
         FROM nodes
         INNER JOIN connections
         ON nodes.id = connections.input_node
         WHERE nodes.id in {0}'''.format(sql_node_ids))
     for node in res.fetchall():
         node_id = node[0]
-        input_node = node[1]
-        output_node = node[2]
+        node_value = node[1]
+        input_node = node[2]
+        output_node = node[3]
+
+        owned_nodes[node_id]["value"] = node_value
+        owned_nodes[output_node]["input_connections"][input_node] = {}
         owned_nodes[node_id]["output_connections"][output_node] = {}
-    return owned_nodes
+    for _, node in owned_nodes.items():
+        node["input_connections"] = get_ordered_dict_by_key(node["input_connections"])
+        node["output_connections"] = get_ordered_dict_by_key(node["output_connections"])
+    return get_ordered_dict_by_key(owned_nodes)
 
 def set_audio_input(node_id):
     conn = sqlite3.connect("pyaudio.db")
