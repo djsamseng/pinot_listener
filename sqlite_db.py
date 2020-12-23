@@ -13,7 +13,7 @@ def get_ordered_dict_by_key(obj):
         ordered_dict[key] = obj[key]
     return ordered_dict
 
-def create_new_node_network_sqlite():
+def create_new_node_network_sqlite(num_input_nodes=2048):
     conn.execute("DROP TABLE IF EXISTS nodes")
     conn.execute("DROP TABLE IF EXISTS connections")
     conn.execute('''CREATE TABLE nodes
@@ -40,8 +40,8 @@ def create_new_node_network_sqlite():
     conn.commit()
     conn_id = 0
     for i in range(num_nodes):
-        for j in range(num_connections_per_node):
-            dest = random.randint(0, num_nodes - 1)
+        for _ in range(num_connections_per_node):
+            dest = random.randint(num_input_nodes, num_nodes - 1)
             while dest is i:
                 dest = random.randint(0, num_nodes - 1)
             conn.execute('''INSERT INTO connections

@@ -11,13 +11,19 @@ RECORD_SECONDS = 0.1
 
 def callback(in_data, frame_count, time_info, flag, audio_callback):
     # len 2048 each element is an int from [0, 255]
-    audio_callback(in_data)
-    return in_data, pyaudio.paComplete
+    try:
+        as_arr = []
+        for byte in in_data:
+            as_arr.append(int(byte))
+        audio_callback.send(as_arr)
+    except:
+        pass
+    return in_data, pyaudio.paContinue
 
-def record(audio_callback):
+def record(audio_child_conn):
     p = pyaudio.PyAudio()
 
-    bound_callback = partial(callback, audio_callback=audio_callback)
+    bound_callback = partial(callback, audio_callback=audio_child_conn)
     stream = p.open(format=FORMAT,
         channels=CHANNELS,
         rate=RATE,
@@ -28,10 +34,20 @@ def record(audio_callback):
     stream.start_stream()
 
     while stream.is_active():
-        # stream.stop_stream()
-        pass
+        has_message = audio_child_conn.poll(0.1)
+        if has_message:
+            msg = audio_child_conn.recv()
+            print("Received! {0}".format(msg))
+            if msg and msg["key"] == "exit":
+                #stream.stop_stream()
+                break
+
     print("Done recording", flush=True)
 
-    stream.close()
-    p.terminate()
+    #stream.close()
+    #p.terminate()
+
+    audio_child_conn.close()
+
+    print("Closed!")
 
