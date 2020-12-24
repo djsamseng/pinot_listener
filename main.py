@@ -31,6 +31,7 @@ def tick():
         input_array = np.zeros_like(node_weights)
         populate_input_array_for_node(input_array, GLOBALS["nodes"], node)
         new_node_val = np.dot(input_array, node_weights)
+        # Average this out - memory since the new value only slighly effects the current value
         node["value"] = new_node_val
 
 
