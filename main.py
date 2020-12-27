@@ -26,7 +26,14 @@ def tick(nodes, weights):
         input_array = np.zeros_like(node_weights)
         populate_input_array_for_node(input_array, nodes, node)
         new_node_val = np.dot(input_array, node_weights) / len(node["input_connections"])
+
         node["value"] = node["value"] * 0.9 + new_node_val * 0.1
+        weight_change = (input_array - (256 / 2) )/ 256
+        # print("Weight change: {0}".format(weight_change))
+        node_weights = node_weights * 0.9 + weight_change * 0.1
+        node_weights = np.clip(node_weights, -1, 1)
+        weights[node_id] = node_weights
+
     # print("End tick {0}".format(s_tick), flush=True)
     s_tick += 1
 
@@ -45,11 +52,31 @@ def get_nodes():
     max_connections_per_node = 100
     # weights[0] is the input weights of node id 0
     # weights[0][3] is the input weight of node id 0's 3rd input connection into node id 0
-    weights = np.ones((num_nodes, max_connections_per_node))
+    weights = np.zeros((num_nodes, max_connections_per_node))
+    i = 0
+    j = 0
+    for inputting_node_key, inputting_node in nodes.items():
+        j = 0
+        for outputting_node_key, connection in inputting_node["input_connections"].items():
+            weights[i][j] = connection["weight"]
+            j += 1
+        i += 1
+    print("Init weights{0}".format(weights))
     return {
         "nodes": nodes,
         "weights": weights
     }
+
+def save_nodes(nodes, weights):
+    i = 0
+    j = 0
+    for inputting_node_key, inputting_node in nodes.items():
+        j = 0
+        for outputting_node_key, connection in inputting_node["input_connections"].items():
+            connection["weight"] = weights[i][j]
+            j += 1
+        i += 1
+    sqlite_db.save_nodes(nodes)
 
 def get_audio_output(nodes):
     output_nodes_keys = nodes.keys()
@@ -84,6 +111,7 @@ def data_manager_main(data_manager_child_conn):
     node_data = get_nodes()
     nodes = node_data["nodes"]
     weights = node_data["weights"]
+    orig_weights = weights.copy()
 
     audio_parent_conn, audio_child_conn = Pipe()
     audio_process = Process(target=audio_record_on_different_process, args=(audio_child_conn,))
@@ -93,11 +121,11 @@ def data_manager_main(data_manager_child_conn):
         has_audio_data = audio_parent_conn.poll(0.01)
         if has_audio_data:
             audio_data = audio_parent_conn.recv()
-            print("Got audio_parent_conn: {0}".format(len(audio_data)))
+            # print("Got audio_parent_conn: {0}".format(len(audio_data)))
             audio_callback(audio_data, nodes, weights)
             audio_output = get_audio_output(nodes)
             # FIXME
-            audio_output = audio_data
+            # audio_output = audio_data
             audio_parent_conn.send({
                 "key": "play_audio",
                 "data": bytes(audio_output)
@@ -109,11 +137,18 @@ def data_manager_main(data_manager_child_conn):
             # print("Got data_manager_child_conn data: {0}".format(parent_data))
             if parent_data and parent_data["key"] == "exit":
                 break
+            if parent_data and parent_data["key"] == "print_weights":
+                print("Weights: {0}".format(weights))
+            if parent_data and parent_data["key"] == "save":
+                print("Saving weights:{0}".format(weights))
+                save_nodes(nodes, weights)
 
     audio_parent_conn.send({
         "key": "exit"
     })
     print_node_values(nodes)
+    print("New weights: {0}".format(weights))
+    print("Weights changed: {0}".format(not (weights == orig_weights).all()))
     audio_process.join()
     print("Closed data_manager_main", flush=True)
 
@@ -128,6 +163,14 @@ def main():
     command = None
     while command is not "e":
         command = input("Enter command: ")
+        if command == "pw":
+            data_manager_parent_conn.send({
+                "key": "print_weights"
+            })
+        if command == "save":
+            data_manager_parent_conn.send({
+                "key": "save"
+            })
 
     data_manager_parent_conn.send({
         "key": "exit"
