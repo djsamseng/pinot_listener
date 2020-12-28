@@ -1,6 +1,6 @@
 import numpy as np
 
-from multiprocessing import Process, Pipe
+from multiprocessing import Process, Pipe, Queue
 
 import audio
 import sqlite_db
@@ -104,8 +104,8 @@ def print_node_values(nodes):
     print("Node values 0 idxes: {0}".format(idxes_negative[:5]))
     print("Number of node values greater than 0: {0}".format(len(print_ar[print_ar > 0])))
 
-def audio_record_on_different_process(audio_child_conn):
-    audio.record(audio_child_conn)
+def audio_record_on_different_process(audio_child_conn, audio_record_queue):
+    audio.record(audio_child_conn, audio_record_queue)
 
 def data_manager_main(data_manager_child_conn):
     node_data = get_nodes()
@@ -114,22 +114,29 @@ def data_manager_main(data_manager_child_conn):
     orig_weights = weights.copy()
 
     audio_parent_conn, audio_child_conn = Pipe()
-    audio_process = Process(target=audio_record_on_different_process, args=(audio_child_conn,))
+    audio_record_queue = Queue()
+    audio_process = Process(target=audio_record_on_different_process,
+        args=(audio_child_conn, audio_record_queue))
     audio_process.start()
 
+    do_save_recording = False
+    recording_frames = []
+
     while True:
-        has_audio_data = audio_parent_conn.poll(0.01)
-        if has_audio_data:
-            audio_data = audio_parent_conn.recv()
+        if not audio_record_queue.empty():
+            audio_data = audio_record_queue.get_nowait()
             # print("Got audio_parent_conn: {0}".format(len(audio_data)))
             audio_callback(audio_data, nodes, weights)
+            if do_save_recording:
+                recording_frames.append(audio_data)
             audio_output = get_audio_output(nodes)
-            # FIXME
+            # FIXME - need to do this on another process to not block audio recording speed
             # audio_output = audio_data
-            audio_parent_conn.send({
-                "key": "play_audio",
-                "data": bytes(audio_output)
-            })
+            if False:
+                audio_parent_conn.send({
+                    "key": "play_audio",
+                    "data": bytes(audio_output)
+                })
 
         has_parent_data = data_manager_child_conn.poll(0.01)
         if has_parent_data:
@@ -142,13 +149,27 @@ def data_manager_main(data_manager_child_conn):
             if parent_data and parent_data["key"] == "save":
                 print("Saving weights:{0}".format(weights))
                 save_nodes(nodes, weights)
+            if parent_data and parent_data["key"] == "begin_save_recording":
+                print("Saving recording")
+                do_save_recording = True
+                recording_frames = []
+            if parent_data and parent_data["key"] == "end_save_recording" and do_save_recording:
+                filename = "audio_recording.wav"
+                audio.save_recording(recording_frames, filename)
+                print("Saved recording to:{0} with frames:{1}".format(filename, len(recording_frames)))
+                do_save_recording = False
 
     audio_parent_conn.send({
         "key": "exit"
     })
+    audio_parent_conn.close()
     print_node_values(nodes)
     print("New weights: {0}".format(weights))
     print("Weights changed: {0}".format(not (weights == orig_weights).all()))
+    extra_record_data = []
+    while not audio_record_queue.empty():
+        extra_record_data.append(audio_record_queue.get())
+    print("Joining audio. Extra record data: {0}".format(len(extra_record_data)), flush=True)
     audio_process.join()
     print("Closed data_manager_main", flush=True)
 
@@ -170,6 +191,14 @@ def main():
         if command == "save":
             data_manager_parent_conn.send({
                 "key": "save"
+            })
+        if command == "begin_save_recording":
+            data_manager_parent_conn.send({
+                "key": "begin_save_recording"
+            })
+        if command == "end_save_recording":
+            data_manager_parent_conn.send({
+                "key": "end_save_recording"
             })
 
     data_manager_parent_conn.send({

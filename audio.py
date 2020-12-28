@@ -1,5 +1,6 @@
 import pyaudio
 import time
+import wave
 
 from functools import partial
 
@@ -9,18 +10,26 @@ CHANNELS = 1
 RATE = 44100
 RECORD_SECONDS = 0.1
 
-def callback(in_data, frame_count, time_info, flag, audio_callback):
+def callback(in_data, frame_count, time_info, flag, audio_record_queue):
     # len 2048 each element is an int from [0, 255]
-    try:
-        audio_callback.send(in_data)
-    except:
-        pass
+    audio_record_queue.put(in_data)
     return in_data, pyaudio.paContinue
 
-def record(audio_child_conn):
+def save_recording(frames, filename):
+    p = pyaudio.PyAudio()
+    wf = wave.open(filename, 'wb')
+    wf.setnchannels(CHANNELS)
+    wf.setsampwidth(p.get_sample_size(FORMAT))
+    wf.setframerate(RATE)
+    print(len(frames))
+    for frame in frames:
+        wf.writeframes(frame)
+    wf.close()
+
+def record(audio_child_conn, audio_record_queue):
     p = pyaudio.PyAudio()
 
-    bound_callback = partial(callback, audio_callback=audio_child_conn)
+    bound_callback = partial(callback, audio_record_queue=audio_record_queue)
     stream = p.open(format=FORMAT,
         channels=CHANNELS,
         rate=RATE,
@@ -43,9 +52,10 @@ def record(audio_child_conn):
             # print("Received! {0}".format(msg))
             if msg and msg["key"] == "exit":
                 # If we don't close this before stopping the stream the process will hang
-                print("Closing stream", flush=True)
-                audio_child_conn.close()
+                print("Closing audio queue and stream", flush=True)
                 stream.stop_stream()
+                audio_record_queue.close()
+                audio_child_conn.close()
                 break
             if msg and msg["key"] == "play_audio":
                 play_stream.write(msg["data"])
