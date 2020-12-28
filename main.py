@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 from multiprocessing import Process, Pipe, Queue
 
@@ -18,23 +19,34 @@ def audio_callback(in_data, nodes, weights):
 s_tick = 0
 def tick(nodes, weights):
     global s_tick
+    do_log = False
+    begin_time = time.time()
     # print("Start tick {0}".format(s_tick), flush=True)
     for node_id, node in nodes.items():
         if len(node["input_connections"]) == 0:
             continue
         node_weights = weights[node_id]
         input_array = np.zeros_like(node_weights)
+        # 0.03s
         populate_input_array_for_node(input_array, nodes, node)
+        # 0.08s
         new_node_val = np.dot(input_array, node_weights) / len(node["input_connections"])
-
+        # 0.10s
         node["value"] = node["value"] * 0.9 + new_node_val * 0.1
+        # 0.11s
         weight_change = (input_array - (256 / 2) )/ 256
         # print("Weight change: {0}".format(weight_change))
+        # 0.14s
         node_weights = node_weights * 0.9 + weight_change * 0.1
+        # 0.16s
         node_weights = np.clip(node_weights, -1, 1)
+        # 0.27-0.34s
         weights[node_id] = node_weights
+        # 0.25-0.36s
 
-    # print("End tick {0}".format(s_tick), flush=True)
+    end_time = time.time()
+    if do_log:
+        print("End tick {0} took:{1}".format(s_tick, end_time - begin_time), flush=True)
     s_tick += 1
 
 
