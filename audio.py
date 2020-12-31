@@ -26,7 +26,7 @@ def save_recording(frames, filename):
         wf.writeframes(frame)
     wf.close()
 
-def record(audio_child_conn, audio_record_queue):
+def record(audio_child_conn, audio_record_queue, audio_play_queue):
     p = pyaudio.PyAudio()
 
     bound_callback = partial(callback, audio_record_queue=audio_record_queue)
@@ -46,7 +46,7 @@ def record(audio_child_conn, audio_record_queue):
         frames_per_buffer=CHUNK)
 
     while stream.is_active():
-        has_message = audio_child_conn.poll(0.01)
+        has_message = audio_child_conn.poll(0.001)
         if has_message:
             msg = audio_child_conn.recv()
             # print("Received! {0}".format(msg))
@@ -57,8 +57,9 @@ def record(audio_child_conn, audio_record_queue):
                 audio_record_queue.close()
                 audio_child_conn.close()
                 break
-            if msg and msg["key"] == "play_audio":
-                play_stream.write(msg["data"])
+        if not audio_play_queue.empty():
+            audio_data = audio_play_queue.get_nowait()
+            play_stream.write(audio_data)
 
     print("Done recording", flush=True)
 

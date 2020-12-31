@@ -11,6 +11,8 @@ import sqlite_db
 # Each GPU holds state
 
 NUM_INPUT_ONLY_NODES = 2048
+s_tick = 0
+DO_LOG_TIME = False
 
 def audio_callback(in_data, weights, input_locs, node_values, num_node_input_locs):
     # len 2048 (NUM_INPUT_ONLY_NODES) each element is an int from [0, 255]
@@ -18,10 +20,8 @@ def audio_callback(in_data, weights, input_locs, node_values, num_node_input_loc
         node_values[i] = in_data[i]
     tick(weights, input_locs, node_values, num_node_input_locs)
 
-s_tick = 0
 def tick(weights, input_locs, node_values, num_node_input_locs):
-    global s_tick
-    do_log = False
+    global s_tick, DO_LOG_TIME
     begin_time = time.time()
     # print("Start tick {0}".format(s_tick), flush=True)
     for node_id in range(len(node_values)):
@@ -40,7 +40,7 @@ def tick(weights, input_locs, node_values, num_node_input_locs):
         # 0.08s
 
     end_time = time.time()
-    if do_log:
+    if DO_LOG_TIME:
         print("End tick {0} took:{1}".format(s_tick, end_time - begin_time), flush=True)
     s_tick += 1
 
@@ -116,10 +116,11 @@ def print_node_values(node_values):
     print("Node values 0 idxes: {0}".format(idxes_negative[:5]))
     print("Number of node values greater than 0: {0}".format(len(node_values[node_values > 0])))
 
-def audio_record_on_different_process(audio_child_conn, audio_record_queue):
-    audio.record(audio_child_conn, audio_record_queue)
+def audio_record_on_different_process(audio_child_conn, audio_record_queue, audio_play_queue):
+    audio.record(audio_child_conn, audio_record_queue, audio_play_queue)
 
 def data_manager_main(data_manager_child_conn):
+    global DO_LOG_TIME
     node_data = get_nodes()
     input_locs = node_data["input_locs"]
     nodes = node_data["nodes"]
@@ -130,14 +131,17 @@ def data_manager_main(data_manager_child_conn):
 
     audio_parent_conn, audio_child_conn = Pipe()
     audio_record_queue = Queue()
+    audio_play_queue = Queue()
     audio_process = Process(target=audio_record_on_different_process,
-        args=(audio_child_conn, audio_record_queue))
+        args=(audio_child_conn, audio_record_queue, audio_play_queue))
     audio_process.start()
 
     do_save_recording = False
     recording_frames = []
 
+    itr = 0
     while True:
+        begin_time = time.time()
         if not audio_record_queue.empty():
             audio_data = audio_record_queue.get_nowait()
             # print("Got audio_parent_conn: {0}".format(len(audio_data)))
@@ -145,15 +149,10 @@ def data_manager_main(data_manager_child_conn):
             if do_save_recording:
                 recording_frames.append(audio_data)
             audio_output = get_audio_output(node_values)
-            # FIXME - need to do this on another process to not block audio recording speed
             # audio_output = audio_data
-            if False:
-                audio_parent_conn.send({
-                    "key": "play_audio",
-                    "data": bytes(audio_output)
-                })
+            audio_play_queue.put(audio_output)
 
-        has_parent_data = data_manager_child_conn.poll(0.01)
+        has_parent_data = data_manager_child_conn.poll(0.001)
         if has_parent_data:
             parent_data = data_manager_child_conn.recv()
             # print("Got data_manager_child_conn data: {0}".format(parent_data))
@@ -176,6 +175,11 @@ def data_manager_main(data_manager_child_conn):
                 audio.save_recording(recording_frames, filename)
                 print("Saved recording to:{0} with frames:{1}".format(filename, len(recording_frames)))
                 do_save_recording = False
+        end_time = time.time()
+        if DO_LOG_TIME:
+            print("End loop {0} took:{1}".format(itr, end_time - begin_time), flush=True)
+
+        itr += 1
 
     audio_parent_conn.send({
         "key": "exit"
