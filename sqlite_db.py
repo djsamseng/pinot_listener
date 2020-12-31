@@ -69,7 +69,7 @@ def save_nodes(nodes):
             print("Saving node: {0}/{1}".format(inputting_node_key, num_nodes), flush=True)
         conn.execute('''UPDATE nodes
             SET value={0}
-            WHERE id={1}'''.format(inputting_node_key, node["value"]))
+            WHERE id={1}'''.format(node["value"], inputting_node_key))
         for outputting_node_key, connection in node["input_connections"].items():
             conn_id = get_conn_id(inputting_node_key, outputting_node_key)
             conn.execute('''UPDATE connections
@@ -87,7 +87,8 @@ def init_worker_sqlite(worker_id, num_workers):
     for i in range(num_nodes):
         if (i % num_workers) == worker_id:
             owned_nodes[i] = {
-                "input_connections": {}
+                "input_connections": {},
+                "value": 0
             }
     sql_node_ids = "("
     sql_node_ids += ", ".join([str(a) for a in owned_nodes.keys()])
