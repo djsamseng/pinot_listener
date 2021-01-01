@@ -7,7 +7,7 @@ from functools import partial
 CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 44100
+RATE = int(44100 / 10)
 RECORD_SECONDS = 0.1
 
 def callback(in_data, frame_count, time_info, flag, audio_record_queue):

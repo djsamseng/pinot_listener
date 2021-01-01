@@ -1,3 +1,4 @@
+import array
 import numpy as np
 import time
 
@@ -35,7 +36,7 @@ def tick(weights, input_locs, node_values, num_node_input_locs):
         # print("Weight change: {0}".format(weight_change))
         node_weights = node_weights * 0.9 + weight_change * 0.1
         node_weights[node_weights > 1] = 1
-        node_weights[node_weights < -1] = -1
+        node_weights[node_weights < 0] = 0
         weights[node_id] = node_weights
         # 0.08s
 
@@ -102,6 +103,8 @@ def save_nodes(nodes, weights, node_values):
 def get_audio_output(node_values):
     output_values = node_values[-NUM_INPUT_ONLY_NODES:]
     output_values = np.round(output_values)
+    output_values = output_values.astype(np.int16)
+    output_values[output_values < 0] = 0
     return output_values
 
 def print_node_values(node_values):
@@ -149,7 +152,12 @@ def data_manager_main(data_manager_child_conn):
             if do_save_recording:
                 recording_frames.append(audio_data)
             audio_output = get_audio_output(node_values)
-            # audio_output = audio_data
+            VALIDATE_AUDIO_OUTPUT = False
+            if VALIDATE_AUDIO_OUTPUT:
+                audio_output = []
+                for i in range(len(audio_data)):
+                    audio_output.append(audio_data[i])
+            audio_output = array.array('B', audio_output).tobytes()
             audio_play_queue.put(audio_output)
 
         has_parent_data = data_manager_child_conn.poll(0.001)
