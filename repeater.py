@@ -1,10 +1,12 @@
 import array
 import json
 import numpy as np
+import os
 import time
 from enum import Enum
 
 from functools import partial
+from glob import glob
 from multiprocessing import Process, Pipe, Queue
 from types import SimpleNamespace
 
@@ -64,6 +66,26 @@ def gather_until_exit(queue):
     while command is not "e":
         command = input("Press e to stop recording")
     return audio_queue_get_all(queue)
+
+def save_audio_data(filename, audio_arr):
+    filename = filename + ".json"
+    with open(filename, "r") as f:
+        f.read()
+    with open(filename, "w") as f:
+        f.write(json.dumps(audio_arr))
+
+def read_audio_data(filename):
+    with open(filename, "r") as f:
+        play_data = json.loads(f.read())
+    return play_data
+
+def read_concepts():
+    ret = {}
+    for filename in glob("./*.json"):
+        end_index = filename.find(".json")
+        concept_name = filename[2:end_index]
+        ret[concept_name] = read_audio_data(filename)
+    return SimpleNamespace(**ret)
 
 def play_audio_data(audio_play_queue, play_arr):
     audio_output = array.array('B', play_arr).tobytes()

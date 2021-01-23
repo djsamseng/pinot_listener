@@ -22,5 +22,8 @@ import repeater as r
 q = r.data_manager_api()
 data = r.gather_until_exit(q.audio_record_queue)
 r.play_audio_data(q.audio_play_queue, data)
+r.save_audio_data("h", data)
+c = r.read_concepts()
+r.play_audio_data(q.audio_play_queue, c.h)
 ```
 
