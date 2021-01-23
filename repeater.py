@@ -6,6 +6,7 @@ from enum import Enum
 
 from functools import partial
 from multiprocessing import Process, Pipe, Queue
+from types import SimpleNamespace
 
 import audio2
 
@@ -31,6 +32,47 @@ class KEYS(Enum):
 
 def audio_record_on_different_process(audio_child_conn, audio_record_queue, audio_play_queue):
     audio2.record(audio_child_conn, audio_record_queue, audio_play_queue)
+
+
+def get_data_manager_conn():
+    audio_parent_conn, audio_child_conn = Pipe()
+    audio_record_queue = Queue()
+    audio_play_queue = Queue()
+    audio_process = Process(target=audio_record_on_different_process,
+        args=(audio_child_conn, audio_record_queue, audio_play_queue))
+    audio_process.start()
+
+    return {
+        "audio_parent_conn": audio_parent_conn,
+        "audio_child_conn": audio_child_conn,
+        "audio_record_queue": audio_record_queue,
+        "audio_play_queue": audio_play_queue,
+        "audio_process": audio_process,
+    }
+
+def audio_queue_get_all(queue):
+    data = []
+    while not queue.empty():
+        audio_data = queue.get_nowait()
+        for i in range(len(audio_data)):
+            data.append(audio_data[i])
+    return data
+
+def gather_until_exit(queue):
+    audio_queue_get_all(queue)
+    command = None
+    while command is not "e":
+        command = input("Press e to stop recording")
+    return audio_queue_get_all(queue)
+
+def play_audio_data(audio_play_queue, play_arr):
+    audio_output = array.array('B', play_arr).tobytes()
+    audio_play_queue.put_nowait(audio_output)
+
+def data_manager_api():
+    data_manager_cons = get_data_manager_conn()
+    aud = SimpleNamespace(**data_manager_cons)
+    return aud
 
 def data_manager_main(data_manager_child_conn):
     audio_parent_conn, audio_child_conn = Pipe()
@@ -136,3 +178,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
