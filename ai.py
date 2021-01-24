@@ -36,38 +36,47 @@ def single_node_example():
     '''
     Need to add input resistance into the picture. The higher t
     '''
-    this_nodes_current_value = 0.3
-    this_nodes_resistance_before = this_nodes_current_value
+    this_nodes_orig_value = 0.3
 
     inputs_to_this_node = np.random.rand(1, NODES_PER_GROUP)
     input_weights_to_this_node = np.random.rand(NODES_PER_GROUP, 1) / NODES_PER_GROUP
     this_nodes_value_change = np.dot(inputs_to_this_node, input_weights_to_this_node)
 
-    if this_nodes_current_value + this_nodes_value_change > NODE_THRESHOLD:
+    if this_nodes_orig_value + this_nodes_value_change > NODE_THRESHOLD:
         error_message = '''Super charged node
-            current value:{0} value change: {1}'''.format(this_nodes_current_value, this_nodes_value_change)
+            current value:{0} value change: {1}'''.format(this_nodes_orig_value, this_nodes_value_change)
         # assert(False, error_message)
         print(error_message)
-    this_nodes_current_value += this_nodes_value_change
+    this_nodes_mid_value = this_nodes_orig_value + this_nodes_value_change
 
-    this_nodes_value_to_output = max(this_nodes_current_value - NODE_THRESHOLD, 0)
-    this_nodes_current_value -= this_nodes_value_to_output
-    print("Final node value:{0} after outputting:{1}".format(this_nodes_current_value, this_nodes_value_to_output))
+    this_nodes_value_to_output = max(this_nodes_mid_value - NODE_THRESHOLD, 0)
+    this_nodes_after_value = this_nodes_mid_value - this_nodes_value_to_output
 
     output_weights_from_this_node = np.random.rand(1, NODES_PER_GROUP) / NODES_PER_GROUP
     output_nodes_resistance = np.random.randn(1, NODES_PER_GROUP)
     output_nodes_resistance[output_nodes_resistance < 0] = output_nodes_resistance[output_nodes_resistance < 0] * -1
-    print("Resistance:", output_nodes_resistance[0][:10])
-    resistence_multiplicative_effect = np.ones_like(output_nodes_resistance) - (output_nodes_resistance / np.max(output_nodes_resistance))
-    print("Weights before:", output_weights_from_this_node[0][:10])
-    output_weights_from_this_node *= resistence_multiplicative_effect
-    print("Weights after:", output_weights_from_this_node[0][0:10])
 
-    # output weights need to be changed to consider input resistance
-    outputs_from_this_node = np.dot(this_nodes_value_to_output, output_weights_from_this_node)
+    resistence_multiplicative_effect = np.ones_like(output_nodes_resistance) - (output_nodes_resistance / np.max(output_nodes_resistance))
+
+    output_weights_from_this_node_with_resistance = output_weights_from_this_node * resistence_multiplicative_effect
+
+    outputs_from_this_node = np.dot(this_nodes_value_to_output, output_weights_from_this_node_with_resistance)
     outputs_from_this_node[outputs_from_this_node < 0] = 0
-    print("Final outputs:", outputs_from_this_node[0][:10])
-    this_nodes_resistance_after = this_nodes_current_value
+
+    LEARN_RATIO = 0.001
+    LOG_LENGTH = 4
+    input_weights_to_this_node_after_learning = input_weights_to_this_node + input_weights_to_this_node * np.rot90(inputs_to_this_node, k=-1) * LEARN_RATIO
+    output_weights_from_this_node_after_learning = output_weights_from_this_node + output_weights_from_this_node * outputs_from_this_node * LEARN_RATIO
+
+    print("Input values:", inputs_to_this_node[0][:LOG_LENGTH])
+    print("Input weights before:", np.rot90(input_weights_to_this_node[:LOG_LENGTH]))
+    print("Input weights learned:", np.rot90(input_weights_to_this_node_after_learning[:LOG_LENGTH]))
+    print("Value state before:{0} increased:{1} outputted:{2} final:{3}".format(this_nodes_orig_value, this_nodes_value_change, this_nodes_value_to_output, this_nodes_after_value))
+    print("Resistance:", output_nodes_resistance[0][:LOG_LENGTH])
+    print("Output weights before:", output_weights_from_this_node[0][:LOG_LENGTH])
+    print("Output weights considering resistance:", output_weights_from_this_node_with_resistance[0][0:LOG_LENGTH])
+    print("Output weights learned:", output_weights_from_this_node_after_learning[0][:LOG_LENGTH])
+    print("Output value:", outputs_from_this_node[0][:LOG_LENGTH])
 
 if __name__ == "__main__":
     single_node_example()
