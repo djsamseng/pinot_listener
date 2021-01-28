@@ -31,11 +31,14 @@ from types import SimpleNamespace
 NUM_INPUTS = 2048
 MAX_VAL = 255
 
-NODES_PER_GROUP = 100
+NODES_PER_GROUP = 200
+NODE_CONNECTIVITY = 10
 NODE_THRESHOLD = 0.5
 RESISTANCE_TRESHOLD = 1
+COPY_AND_ASSERT = True
 
 LOG_LENGTH = 4
+LOG_ACTIVATION = False
 LEARN_RATIO = 0.001
 
 def calc_single_node(inputs_to_this_node,
@@ -44,7 +47,10 @@ def calc_single_node(inputs_to_this_node,
     output_weights_from_this_node,
     output_nodes_resistance):
 
-
+    assert(inputs_to_this_node.shape == (1, NODE_CONNECTIVITY))
+    assert(input_weights_to_this_node.shape == (NODE_CONNECTIVITY, 1))
+    assert(this_nodes_orig_value.shape == (1,1))
+    assert(type(this_nodes_orig_value[0,0]) == np.float64)
 
     this_nodes_value_change = np.dot(inputs_to_this_node, input_weights_to_this_node)
 
@@ -53,8 +59,9 @@ def calc_single_node(inputs_to_this_node,
             current value:{0} value change: {1}'''.format(this_nodes_orig_value, this_nodes_value_change)
         assert(False, error_message)
     if this_nodes_orig_value + this_nodes_value_change > NODE_THRESHOLD:
-        msg = "Node activated current value:{0} value change: {1}".format(this_nodes_orig_value, this_nodes_value_change)
-        print(msg)
+        if LOG_ACTIVATION:
+            msg = "Node activated current value:{0} value change: {1}".format(this_nodes_orig_value, this_nodes_value_change)
+            print(msg)
 
     this_nodes_mid_value = this_nodes_orig_value + this_nodes_value_change
 
@@ -91,18 +98,18 @@ def single_node_example():
     '''
     Need to add input resistance into the picture. The higher t
     '''
-    this_nodes_orig_value = 0.3
+    this_nodes_orig_value = np.array([[0.3]])
 
-    input_weights_to_this_node = np.random.rand(NODES_PER_GROUP, 1) / NODES_PER_GROUP
-    output_weights_from_this_node = np.random.rand(1, NODES_PER_GROUP) / NODES_PER_GROUP
+    input_weights_to_this_node = np.random.rand(NODE_CONNECTIVITY, 1) / NODE_CONNECTIVITY
+    output_weights_from_this_node = np.random.rand(1, NODE_CONNECTIVITY) / NODE_CONNECTIVITY
 
     itr_input_weights_to_this_node = input_weights_to_this_node
     itr_output_weights_from_this_node = output_weights_from_this_node
     itr_this_nodes_value = this_nodes_orig_value
 
     for i in range(10):
-        inputs_to_this_node = np.random.rand(1, NODES_PER_GROUP)
-        output_nodes_resistance = np.random.randn(1, NODES_PER_GROUP)
+        inputs_to_this_node = np.random.rand(1, NODE_CONNECTIVITY)
+        output_nodes_resistance = np.random.randn(1, NODE_CONNECTIVITY)
         output_nodes_resistance[output_nodes_resistance < 0] = output_nodes_resistance[output_nodes_resistance < 0] * -1
         output_nodes_resistance[output_nodes_resistance > RESISTANCE_TRESHOLD] = RESISTANCE_TRESHOLD
         after = calc_single_node(inputs_to_this_node=inputs_to_this_node,
@@ -131,6 +138,51 @@ def single_node_example():
     print("Output weights learned:", after.output_weights_from_this_node_after_learning[0][:LOG_LENGTH])
     print("Output value:", after.outputs_from_this_node[0][:LOG_LENGTH])
 
+def multi_node_example():
+    orig_values = np.zeros((1, NODES_PER_GROUP))
+    orig_values[:,:] = 0.3
+    input_weights = np.random.rand(NODE_CONNECTIVITY, NODES_PER_GROUP) / NODE_CONNECTIVITY
+    output_weights = np.random.rand(NODES_PER_GROUP, NODE_CONNECTIVITY) / NODE_CONNECTIVITY
+
+    itr_values = orig_values
+    itr_input_weights = input_weights
+    itr_output_weights = output_weights
+
+    for itr in range(10):
+        itr_orig_values = np.copy(itr_values)
+        itr_orig_input_weights = np.copy(itr_input_weights)
+        itr_orig_output_weights = np.copy(itr_output_weights)
+        for node_id in range(NODE_CONNECTIVITY + 1, NODES_PER_GROUP - NODE_CONNECTIVITY):
+            input_start_idx = node_id - NODE_CONNECTIVITY - 1
+            input_end_idx = node_id -1
+            inputs_to_this_node = itr_orig_values[0:1, input_start_idx:input_end_idx]
+            assert(inputs_to_this_node.shape == (1, NODE_CONNECTIVITY))
+            input_weights_to_this_node = itr_orig_input_weights[:, node_id:node_id+1]
+            output_weights_from_this_node = itr_orig_output_weights[node_id:node_id+1, :]
+            output_start_idx = node_id + 1
+            output_end_idx = node_id + NODE_CONNECTIVITY + 1
+            output_nodes_resistance = itr_orig_values[0:1, output_start_idx:output_end_idx]
+            assert(output_nodes_resistance.shape == (1, NODE_CONNECTIVITY))
+
+            after = calc_single_node(inputs_to_this_node=inputs_to_this_node,
+                input_weights_to_this_node=input_weights_to_this_node,
+                this_nodes_orig_value=itr_orig_values[0:1, node_id:node_id+1],
+                output_weights_from_this_node=output_weights_from_this_node,
+                output_nodes_resistance=output_nodes_resistance)
+            after = SimpleNamespace(**after)
+
+            itr_input_weights[:, node_id:node_id+1] = after.input_weights_to_this_node_after_learning
+            itr_values[0,node_id] = after.this_nodes_after_value[0,0]
+            itr_output_weights[node_id+1, :] = after.output_weights_from_this_node_after_learning
+
+
+        print("MultiNode itr:{0}".format(itr))
+
+        assert(not np.allclose(itr_orig_input_weights, itr_input_weights))
+        assert(not np.allclose(itr_orig_output_weights, itr_output_weights))
+
+
 
 if __name__ == "__main__":
     single_node_example()
+    multi_node_example()
