@@ -25,6 +25,7 @@ o5
 '''
 
 import numpy as np
+import unittest
 
 from types import SimpleNamespace
 
@@ -45,16 +46,20 @@ def calc_single_node(inputs_to_this_node,
     input_weights_to_this_node,
     this_nodes_orig_value,
     output_weights_from_this_node,
-    output_nodes_resistance):
+    output_nodes_resistance,
+    node_connectivity,
+    node_threshold,
+    resistance_threshold,
+    learn_ratio):
 
-    assert(inputs_to_this_node.shape == (1, NODE_CONNECTIVITY))
-    assert(input_weights_to_this_node.shape == (NODE_CONNECTIVITY, 1))
+    assert(inputs_to_this_node.shape == (1, node_connectivity))
+    assert(input_weights_to_this_node.shape == (node_connectivity, 1))
     assert(this_nodes_orig_value.shape == (1,1))
     assert(type(this_nodes_orig_value[0,0]) == np.float64)
 
     this_nodes_value_change = np.dot(inputs_to_this_node, input_weights_to_this_node)
 
-    if this_nodes_orig_value + this_nodes_value_change > RESISTANCE_TRESHOLD:
+    if this_nodes_orig_value + this_nodes_value_change > resistance_threshold:
         error_message = '''Node exceeded max threshold
             current value:{0} value change: {1}'''.format(this_nodes_orig_value, this_nodes_value_change)
         assert(False, error_message)
@@ -67,21 +72,20 @@ def calc_single_node(inputs_to_this_node,
 
     # This value needs to be distributed, not multiplied by the output weights
     # Distribute to each connection such that we can't send more than RESISTANCE_THRESHOLD to each connection
-    this_nodes_value_to_output = max(this_nodes_mid_value - NODE_THRESHOLD, 0)
+    this_nodes_value_to_output = max(this_nodes_mid_value - node_threshold, 0)
     this_nodes_after_value = this_nodes_mid_value - this_nodes_value_to_output
 
     value_distributed = np.dot(this_nodes_value_to_output, output_weights_from_this_node) / np.sum(output_weights_from_this_node)
     assert(np.allclose(np.sum(value_distributed), this_nodes_value_to_output))
     assert(np.all(output_nodes_resistance >= 0))
-    assert(np.all(output_nodes_resistance <= RESISTANCE_TRESHOLD))
+    assert(np.all(output_nodes_resistance <= resistance_threshold))
     new_output_nodes_values = value_distributed + output_nodes_resistance
-    output_values_over_threshold = new_output_nodes_values - RESISTANCE_TRESHOLD
+    output_values_over_threshold = new_output_nodes_values - resistance_threshold
     output_values_over_threshold[output_values_over_threshold < 0] = 0
     value_distributed = value_distributed - output_values_over_threshold
     this_nodes_after_value = this_nodes_after_value + np.sum(output_values_over_threshold)
-
-    input_weights_to_this_node_after_learning = input_weights_to_this_node + input_weights_to_this_node * np.rot90(inputs_to_this_node, k=-1) * LEARN_RATIO
-    output_weights_from_this_node_after_learning = output_weights_from_this_node + output_weights_from_this_node * value_distributed * LEARN_RATIO
+    input_weights_to_this_node_after_learning = input_weights_to_this_node + input_weights_to_this_node * np.rot90(inputs_to_this_node, k=-1) * learn_ratio
+    output_weights_from_this_node_after_learning = output_weights_from_this_node + output_weights_from_this_node * value_distributed * learn_ratio
 
     assert(np.allclose(this_nodes_orig_value + this_nodes_value_change, this_nodes_after_value + np.sum(value_distributed)))
 
@@ -93,6 +97,91 @@ def calc_single_node(inputs_to_this_node,
         "output_weights_from_this_node_after_learning": output_weights_from_this_node_after_learning,
         "outputs_from_this_node": value_distributed
     }
+
+def test_calc_single_node_1():
+    this_nodes_orig_value = np.array([[0.3]])
+    input_weights_to_this_node = np.array([
+        [ 0.5 ],
+        [ 0.1 ]
+    ])
+    output_weights_from_this_node = np.array([
+        [ 0.2, 0.1 ]
+    ])
+    inputs_to_this_node = np.array([
+        [ 0.2, 0.3 ],
+    ])
+    output_nodes_resistance = np.array([
+        [ 0.0, 0.0 ],
+    ])
+    node_threshold = 0.5
+    after = calc_single_node(inputs_to_this_node=inputs_to_this_node,
+        input_weights_to_this_node=input_weights_to_this_node,
+        this_nodes_orig_value=this_nodes_orig_value,
+        output_weights_from_this_node=output_weights_from_this_node,
+        output_nodes_resistance=output_nodes_resistance,
+        node_connectivity=2,
+        node_threshold=node_threshold,
+        resistance_threshold=1,
+        learn_ratio=0.1
+    )
+    after = SimpleNamespace(**after)
+    expected_value_after = this_nodes_orig_value
+    expected_value_after += input_weights_to_this_node[0,0] * inputs_to_this_node[0,0]
+    expected_value_after += input_weights_to_this_node[1,0] * inputs_to_this_node[0,1]
+    np.testing.assert_allclose(after.this_nodes_after_value, expected_value_after)
+    np.testing.assert_allclose(after.this_nodes_after_value, np.array([[0.43]]))
+    output_value = max(expected_value_after[0, 0] - node_threshold, 0)
+    expected_outputs = np.array([[
+        output_value * output_weights_from_this_node[0, 0] / np.sum(output_weights_from_this_node),
+        output_value * output_weights_from_this_node[0, 1] / np.sum(output_weights_from_this_node)
+    ]])
+    np.testing.assert_allclose(after.outputs_from_this_node, expected_outputs)
+    np.testing.assert_allclose(after.outputs_from_this_node, np.array([[0, 0]]))
+    print("Unit tests 3 success")
+
+def test_calc_single_node_2():
+    this_nodes_orig_value = np.array([[0.3]])
+    input_weights_to_this_node = np.array([
+        [ 0.5 ],
+        [ 0.1 ]
+    ])
+    output_weights_from_this_node = np.array([
+        [ 0.2, 0.1 ]
+    ])
+    inputs_to_this_node = np.array([
+        [ 0.2, 0.3 ],
+    ])
+    output_nodes_resistance = np.array([
+        [ 0.0, 0.0 ],
+    ])
+    node_threshold = 0.2
+    after = calc_single_node(inputs_to_this_node=inputs_to_this_node,
+        input_weights_to_this_node=input_weights_to_this_node,
+        this_nodes_orig_value=this_nodes_orig_value,
+        output_weights_from_this_node=output_weights_from_this_node,
+        output_nodes_resistance=output_nodes_resistance,
+        node_connectivity=2,
+        node_threshold=node_threshold,
+        resistance_threshold=1,
+        learn_ratio=0.1
+    )
+    after = SimpleNamespace(**after)
+    expected_value_mid = this_nodes_orig_value
+    expected_value_mid += input_weights_to_this_node[0,0] * inputs_to_this_node[0,0]
+    expected_value_mid += input_weights_to_this_node[1,0] * inputs_to_this_node[0,1]
+    # Over threshold
+    expected_value_after = np.array([[node_threshold]])
+    output_value = expected_value_mid[0, 0] - node_threshold
+    np.testing.assert_allclose(after.this_nodes_after_value, expected_value_after)
+    np.testing.assert_allclose(after.this_nodes_after_value, np.array([[0.2]]))
+
+    expected_outputs = np.array([[
+        output_value * output_weights_from_this_node[0, 0] / np.sum(output_weights_from_this_node),
+        output_value * output_weights_from_this_node[0, 1] / np.sum(output_weights_from_this_node)
+    ]])
+    np.testing.assert_allclose(after.outputs_from_this_node, expected_outputs)
+    np.testing.assert_allclose(after.outputs_from_this_node, np.array([[0.153333, 0.076667]]), 0.00001)
+    print("Unit tests 2 success")
 
 def single_node_example():
     '''
@@ -116,7 +205,11 @@ def single_node_example():
             input_weights_to_this_node=itr_input_weights_to_this_node,
             this_nodes_orig_value=itr_this_nodes_value,
             output_weights_from_this_node=itr_output_weights_from_this_node,
-            output_nodes_resistance=output_nodes_resistance)
+            output_nodes_resistance=output_nodes_resistance,
+            node_connectivity=NODE_CONNECTIVITY,
+            node_threshold=NODE_THRESHOLD,
+            resistance_threshold=RESISTANCE_TRESHOLD,
+            learn_ratio=LEARN_RATIO)
         after = SimpleNamespace(**after)
 
         itr_input_weights_to_this_node = after.input_weights_to_this_node_after_learning
@@ -168,7 +261,11 @@ def multi_node_example():
                 input_weights_to_this_node=input_weights_to_this_node,
                 this_nodes_orig_value=itr_orig_values[0:1, node_id:node_id+1],
                 output_weights_from_this_node=output_weights_from_this_node,
-                output_nodes_resistance=output_nodes_resistance)
+                output_nodes_resistance=output_nodes_resistance,
+                node_connectivity=NODE_CONNECTIVITY,
+                node_threshold=NODE_THRESHOLD,
+                resistance_threshold=RESISTANCE_TRESHOLD,
+                learn_ratio=LEARN_RATIO)
             after = SimpleNamespace(**after)
 
             itr_input_weights[:, node_id:node_id+1] = after.input_weights_to_this_node_after_learning
@@ -183,6 +280,9 @@ def multi_node_example():
 
 
 
+
 if __name__ == "__main__":
     single_node_example()
     multi_node_example()
+    test_calc_single_node_1()
+    test_calc_single_node_2()
