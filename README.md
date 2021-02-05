@@ -2,6 +2,8 @@
 
 ```bash
 $ python3 main.py
+# OR
+$ python3 main_ai.py
 ```
 
 ## Repeater.py

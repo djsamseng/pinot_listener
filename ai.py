@@ -42,20 +42,11 @@ LOG_LENGTH = 4
 LOG_ACTIVATION = False
 LEARN_RATIO = 0.001
 
-def calc_single_node(inputs_to_this_node,
+def calc_single_node_incoming(inputs_to_this_node,
     input_weights_to_this_node,
     this_nodes_orig_value,
-    output_weights_from_this_node,
-    output_nodes_resistance,
-    node_connectivity,
     node_threshold,
-    resistance_threshold,
-    learn_ratio):
-
-    assert(inputs_to_this_node.shape == (1, node_connectivity))
-    assert(input_weights_to_this_node.shape == (node_connectivity, 1))
-    assert(this_nodes_orig_value.shape == (1,1))
-    assert(type(this_nodes_orig_value[0,0]) == np.float64)
+    resistance_threshold):
 
     this_nodes_value_change = np.dot(inputs_to_this_node, input_weights_to_this_node)
 
@@ -69,6 +60,34 @@ def calc_single_node(inputs_to_this_node,
             print(msg)
 
     this_nodes_mid_value = this_nodes_orig_value + this_nodes_value_change
+    return (this_nodes_value_change, this_nodes_mid_value)
+
+def calc_single_node_outgoing():
+    pass
+
+def calc_single_node(inputs_to_this_node,
+    input_weights_to_this_node,
+    this_nodes_orig_value,
+    output_weights_from_this_node,
+    output_nodes_resistance,
+    node_connectivity,
+    node_threshold,
+    resistance_threshold,
+    learn_ratio):
+
+    assert (inputs_to_this_node.shape == (1, node_connectivity)), "Bad shape:" + str(inputs_to_this_node.shape) + "!=" + str((1, node_connectivity))
+    assert (input_weights_to_this_node.shape == (node_connectivity, 1)), "Bad shape:" + str(input_weights_to_this_node.shape) + "!=" + str((node_connectivity, 1))
+    assert (this_nodes_orig_value.shape == (1,1)), "Bad shape:" + str(this_nodes_orig_value.shape) + "!=(1,1)"
+    assert (type(this_nodes_orig_value[0,0])) == np.float64, "Incorrect node value type:" + str(type(this_nodes_orig_value[0,0]))
+    assert (output_weights_from_this_node.shape == (1, node_connectivity)), "Incorrect output weights shape:" + str(output_weights_from_this_node.shape) + "!=" + str((1, node_connectivity))
+    assert (output_nodes_resistance.shape == (1, node_connectivity)), "Incorrect output_nodes_resistance shape:" + str(output_nodes_resistance.shape) + "!=" + str((1, node_connectivity))
+
+    (this_nodes_value_change, this_nodes_mid_value) = calc_single_node_incoming(inputs_to_this_node=inputs_to_this_node,
+        input_weights_to_this_node=input_weights_to_this_node,
+        this_nodes_orig_value=this_nodes_orig_value,
+        node_threshold=node_threshold,
+        resistance_threshold=resistance_threshold)
+
 
     # This value needs to be distributed, not multiplied by the output weights
     # Distribute to each connection such that we can't send more than RESISTANCE_THRESHOLD to each connection
@@ -88,6 +107,9 @@ def calc_single_node(inputs_to_this_node,
     output_weights_from_this_node_after_learning = output_weights_from_this_node + output_weights_from_this_node * value_distributed * learn_ratio
 
     assert(np.allclose(this_nodes_orig_value + this_nodes_value_change, this_nodes_after_value + np.sum(value_distributed)))
+    if this_nodes_after_value[0,0] > resistance_threshold:
+        # This may be because resistance is high and input signal is high enough there's nowhere to go
+        this_nodes_after_value[0,0] = resistance_threshold
 
     return {
         "input_weights_to_this_node_after_learning": input_weights_to_this_node_after_learning,
