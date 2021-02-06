@@ -129,6 +129,8 @@ def calc_single_node(inputs_to_this_node,
         # This may be because resistance is high and input signal is high enough there's nowhere to go
         this_nodes_after_value[0,0] = resistance_threshold
 
+    assert (value_distributed.shape == (1, node_connectivity))
+
     return {
         "input_weights_to_this_node_after_learning": input_weights_to_this_node_after_learning,
         "this_nodes_value_change": this_nodes_value_change,

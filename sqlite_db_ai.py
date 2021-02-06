@@ -28,7 +28,7 @@ def create_new_node_network_sqlite(num_input_nodes=2048):
     conn.commit()
     print("Created sqlite tables", flush=True)
     num_connections_per_node = 100
-    num_nodes = 100 * 1000
+    num_nodes = 10 * 1000
     new_nodes = []
     insert_query = "INSERT INTO NODES (id, value)"
     insert_query += " VALUES"
