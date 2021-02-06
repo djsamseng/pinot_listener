@@ -46,7 +46,8 @@ def calc_single_node_incoming(inputs_to_this_node,
     input_weights_to_this_node,
     this_nodes_orig_value,
     node_threshold,
-    resistance_threshold):
+    resistance_threshold,
+    learn_ratio):
 
     this_nodes_value_change = np.dot(inputs_to_this_node, input_weights_to_this_node)
 
@@ -60,10 +61,31 @@ def calc_single_node_incoming(inputs_to_this_node,
             print(msg)
 
     this_nodes_mid_value = this_nodes_orig_value + this_nodes_value_change
-    return (this_nodes_value_change, this_nodes_mid_value)
 
-def calc_single_node_outgoing():
-    pass
+    input_weights_to_this_node_after_learning = input_weights_to_this_node + input_weights_to_this_node * np.rot90(inputs_to_this_node, k=-1) * learn_ratio
+
+    return (this_nodes_value_change, this_nodes_mid_value, input_weights_to_this_node_after_learning)
+
+def calc_single_node_outgoing(this_nodes_value_to_output,
+    this_nodes_after_value,
+    output_weights_from_this_node,
+    output_nodes_resistance,
+    resistance_threshold,
+    learn_ratio
+    ):
+    value_distributed = np.dot(this_nodes_value_to_output, output_weights_from_this_node) / np.sum(output_weights_from_this_node)
+    assert(np.allclose(np.sum(value_distributed), this_nodes_value_to_output))
+    assert(np.all(output_nodes_resistance >= 0))
+    assert(np.all(output_nodes_resistance <= resistance_threshold))
+    new_output_nodes_values = value_distributed + output_nodes_resistance
+    output_values_over_threshold = new_output_nodes_values - resistance_threshold
+    output_values_over_threshold[output_values_over_threshold < 0] = 0
+    value_distributed = value_distributed - output_values_over_threshold
+    this_nodes_after_value = this_nodes_after_value + np.sum(output_values_over_threshold)
+
+    output_weights_from_this_node_after_learning = output_weights_from_this_node + output_weights_from_this_node * value_distributed * learn_ratio
+
+    return (this_nodes_after_value, value_distributed, output_weights_from_this_node_after_learning)
 
 def calc_single_node(inputs_to_this_node,
     input_weights_to_this_node,
@@ -82,31 +104,27 @@ def calc_single_node(inputs_to_this_node,
     assert (output_weights_from_this_node.shape == (1, node_connectivity)), "Incorrect output weights shape:" + str(output_weights_from_this_node.shape) + "!=" + str((1, node_connectivity))
     assert (output_nodes_resistance.shape == (1, node_connectivity)), "Incorrect output_nodes_resistance shape:" + str(output_nodes_resistance.shape) + "!=" + str((1, node_connectivity))
 
-    (this_nodes_value_change, this_nodes_mid_value) = calc_single_node_incoming(inputs_to_this_node=inputs_to_this_node,
+    (this_nodes_value_change, this_nodes_mid_value, input_weights_to_this_node_after_learning) = calc_single_node_incoming(inputs_to_this_node=inputs_to_this_node,
         input_weights_to_this_node=input_weights_to_this_node,
         this_nodes_orig_value=this_nodes_orig_value,
         node_threshold=node_threshold,
-        resistance_threshold=resistance_threshold)
-
+        resistance_threshold=resistance_threshold,
+        learn_ratio=learn_ratio)
 
     # This value needs to be distributed, not multiplied by the output weights
     # Distribute to each connection such that we can't send more than RESISTANCE_THRESHOLD to each connection
     this_nodes_value_to_output = max(this_nodes_mid_value - node_threshold, 0)
     this_nodes_after_value = this_nodes_mid_value - this_nodes_value_to_output
 
-    value_distributed = np.dot(this_nodes_value_to_output, output_weights_from_this_node) / np.sum(output_weights_from_this_node)
-    assert(np.allclose(np.sum(value_distributed), this_nodes_value_to_output))
-    assert(np.all(output_nodes_resistance >= 0))
-    assert(np.all(output_nodes_resistance <= resistance_threshold))
-    new_output_nodes_values = value_distributed + output_nodes_resistance
-    output_values_over_threshold = new_output_nodes_values - resistance_threshold
-    output_values_over_threshold[output_values_over_threshold < 0] = 0
-    value_distributed = value_distributed - output_values_over_threshold
-    this_nodes_after_value = this_nodes_after_value + np.sum(output_values_over_threshold)
-    input_weights_to_this_node_after_learning = input_weights_to_this_node + input_weights_to_this_node * np.rot90(inputs_to_this_node, k=-1) * learn_ratio
-    output_weights_from_this_node_after_learning = output_weights_from_this_node + output_weights_from_this_node * value_distributed * learn_ratio
+    (this_nodes_after_value, value_distributed, output_weights_from_this_node_after_learning) = calc_single_node_outgoing(this_nodes_value_to_output=this_nodes_value_to_output,
+        this_nodes_after_value=this_nodes_after_value,
+        output_weights_from_this_node=output_weights_from_this_node,
+        output_nodes_resistance=output_nodes_resistance,
+        resistance_threshold=resistance_threshold,
+        learn_ratio=learn_ratio)
 
     assert(np.allclose(this_nodes_orig_value + this_nodes_value_change, this_nodes_after_value + np.sum(value_distributed)))
+
     if this_nodes_after_value[0,0] > resistance_threshold:
         # This may be because resistance is high and input signal is high enough there's nowhere to go
         this_nodes_after_value[0,0] = resistance_threshold

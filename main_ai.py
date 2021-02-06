@@ -17,13 +17,14 @@ NUM_INPUT_ONLY_NODES = 2048
 s_tick = 0
 DO_LOG_TIME = False
 
-def audio_callback(in_data, weights, input_locs, node_values, num_node_input_locs):
+def audio_callback(in_data, weights, input_locs, output_locs, node_values, num_node_input_locs):
     # len 2048 (NUM_INPUT_ONLY_NODES) each element is an int from [0, 255]
     for i in range(len(in_data)):
         node_values[i] = in_data[i] / 256
-    print(node_values)
+    print(output_locs)
     tick(weights, input_locs, node_values, num_node_input_locs, len(in_data))
 
+# TODO gather inputs from value_distributed instead of the node values
 def tick(weights, input_locs, node_values, num_node_input_locs, max_input_node_id):
     global s_tick, DO_LOG_TIME
     begin_time = time.time()
@@ -122,12 +123,16 @@ def get_nodes():
 
     i = 0
     j = 0
+    output_locs_array = []
+    for _ in range(num_nodes):
+        output_locs_array.append([])
     for inputting_node_key, inputting_node in nodes.items():
         j = 0
         input_locs_for_node = []
         for outputting_node_key, connection in inputting_node["input_connections"].items():
             weights[i][j] = connection["weight"]
             input_locs_for_node.append(outputting_node_key)
+            output_locs_array[outputting_node_key].append(inputting_node_key)
             j += 1
         input_locs[i][:len(input_locs_for_node)] = input_locs_for_node
         node_values[i] = inputting_node["value"]
@@ -137,6 +142,7 @@ def get_nodes():
     print("Init values:{0}".format(node_values[NUM_INPUT_ONLY_NODES:]), flush=True)
     return {
         "input_locs": input_locs,
+        "output_locs": np.array(output_locs_array, dtype=int),
         "nodes": nodes,
         "node_values": node_values,
         "num_node_input_locs": num_node_input_locs,
@@ -181,6 +187,7 @@ def data_manager_main(data_manager_child_conn):
     global DO_LOG_TIME
     node_data = get_nodes()
     input_locs = node_data["input_locs"]
+    output_locs = node_data["output_locs"]
     nodes = node_data["nodes"]
     node_values = node_data["node_values"]
     num_node_input_locs = node_data["num_node_input_locs"]
@@ -203,7 +210,7 @@ def data_manager_main(data_manager_child_conn):
         if not audio_record_queue.empty():
             audio_data = audio_record_queue.get_nowait()
             print("Got audio_parent_conn: {0}".format(len(audio_data)))
-            audio_callback(audio_data, weights, input_locs, node_values, num_node_input_locs)
+            audio_callback(audio_data, weights, input_locs, output_locs, node_values, num_node_input_locs)
             if do_save_recording:
                 recording_frames.append(audio_data)
             audio_output = get_audio_output(node_values)
