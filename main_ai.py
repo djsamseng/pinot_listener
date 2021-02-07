@@ -5,7 +5,7 @@ import time
 from multiprocessing import Process, Pipe, Queue
 from types import SimpleNamespace
 
-import ai
+import ai2
 import audio
 import sqlite_db_ai
 
@@ -17,63 +17,35 @@ NUM_INPUT_ONLY_NODES = 2048
 s_tick = 0
 DO_LOG_TIME = False
 
-def audio_callback(in_data, weights, input_locs, output_locs, node_values, num_node_input_locs, num_node_output_locs):
+def audio_callback(in_data, weights, input_locs, node_values, num_node_input_locs):
     # len 2048 (NUM_INPUT_ONLY_NODES) each element is an int from [0, 255]
     for i in range(len(in_data)):
         # Set curr_values for the input nodes
         node_values[i] = in_data[i] / 256
     tick(weights=weights,
         input_locs=input_locs,
-        output_locs=output_locs,
         node_values=node_values,
         num_node_input_locs=num_node_input_locs,
-        num_node_output_locs=num_node_output_locs,
         max_input_node_id=len(in_data))
 
 # TODO gather inputs from value_distributed instead of the node values
-def tick(weights, input_locs, output_locs, node_values, num_node_input_locs, num_node_output_locs, max_input_node_id):
+def tick(weights, input_locs, node_values, num_node_input_locs, max_input_node_id):
     global s_tick, DO_LOG_TIME
     begin_time = time.time()
     print("Start tick {0}".format(s_tick), flush=True)
     # First process the input only nodes
     assert(max_input_node_id == 2048)
-    node_connectivity = 100
-    resistance_threshold = 1
-    node_threshold = 0.5
-    learn_ratio = 0.0001
-
-    for node_id in range(max_input_node_id):
-        inputs_to_this_node = np.zeros((1, node_connectivity))
-        input_weights_to_this_node = np.zeros((node_connectivity, 1))
-        output_weights_from_this_node = np.ones((1, node_connectivity)) # TODO
-        output_nodes_resistance = np.ones((1, node_connectivity)) * 0.1 # TODO
-        after = ai.calc_single_node(inputs_to_this_node=inputs_to_this_node,
-            input_weights_to_this_node=input_weights_to_this_node,
-            this_nodes_orig_value=np.reshape(node_values[node_id], (1,1)),
-            output_weights_from_this_node=output_weights_from_this_node,
-            output_nodes_resistance=output_nodes_resistance,
-            node_connectivity=node_connectivity,
-            node_threshold=node_threshold,
-            resistance_threshold=resistance_threshold,
-            learn_ratio=learn_ratio)
-        after = SimpleNamespace(**after)
-        for i in range(num_node_output_locs[node_id]):
-            dest = output_locs[node_id, i]
-            # TODO do this for regular nodes
-            # TODO finish refactor of node_values and copy as orig_values so that
-            # inputs to the nodes are different that the nodes current_values
-            node_values[dest] = after.outputs_from_this_node[0, i]
-
+    node_connectivity = 10
 
     for node_id in range(max_input_node_id, len(node_values)):
         if num_node_input_locs[node_id] == 0:
             pass
             #continue
 
+        np.testing.assert_array_equal(weights.shape, (len(node_values), node_connectivity))
         node_weights = weights[node_id]
-        if np.sum(node_weights) < 0.00001:
-            node_weights[:] = 1.0
-            node_weights = node_weights / len(node_weights)
+        # TODO positive weights
+        node_weights[node_weights < 0] = node_weights[node_weights < 0] * -1
         input_array = node_values[input_locs[node_id]]
         input_array[input_array < 0] = 0
         if True:
@@ -81,22 +53,24 @@ def tick(weights, input_locs, output_locs, node_values, num_node_input_locs, num
 
             inputs_to_this_node = np.reshape(input_array, (1, node_connectivity))
             input_weights_to_this_node = np.reshape(node_weights, (node_connectivity, 1))
-            output_weights_from_this_node = np.reshape(node_weights, (1, node_connectivity))
-            output_nodes_resistance = np.reshape(input_array, (1, node_connectivity))
-            after = ai.calc_single_node(inputs_to_this_node=inputs_to_this_node,
-                input_weights_to_this_node=input_weights_to_this_node,
-                this_nodes_orig_value=this_nodes_orig_value,
-                output_weights_from_this_node=output_weights_from_this_node,
-                output_nodes_resistance=output_nodes_resistance,
-                node_connectivity=node_connectivity,
-                node_threshold=0.5,
-                resistance_threshold=1,
-                learn_ratio=0.001)
-            after = SimpleNamespace(**after)
+            (this_nodes_final_value, taken_from_inputs, input_weights_to_this_node_after_learning) = \
+                ai2.calc_single_node_incoming(inputs_to_this_node=inputs_to_this_node,
+                    input_weights_to_this_node=input_weights_to_this_node,
+                    this_nodes_orig_value=this_nodes_orig_value,
+                    max_node_value=2,
+                    node_output_at_threshold=0.3,
+                    node_activation_level=0.5,
+                    node_connectivity=node_connectivity,
+                    learn_ratio=0.001)
             # TODO take output weights into account
             # TODO update learned weights
             # TODO update node_values after all nodes have been calculated off of connection signals
-            node_values[node_id] = after.this_nodes_after_value[0,0]
+            node_values[node_id] = this_nodes_final_value[0, 0]
+            for idx, input_loc in enumerate(input_locs[node_id]):
+                #break # TODO
+                node_values[input_loc] -= taken_from_inputs[0, idx]
+            weights[node_id] = input_weights_to_this_node_after_learning[:, 0]
+            np.testing.assert_array_equal(weights.shape, (len(node_values), node_connectivity))
             #print(res)
         else:
             new_node_val = np.dot(input_array, node_weights) / num_node_input_locs[node_id]
@@ -125,22 +99,17 @@ def get_nodes():
     # Get from sqlite3
     nodes = sqlite_db_ai.init_worker_sqlite(0, 1)
     num_nodes = len(nodes.keys())
-    max_connections_per_node = 100
+    max_connections_per_node = 10
     # weights[0] is the input weights of node id 0
     # weights[0][3] is the input weight of node id 0's 3rd input connection into node id 0
     weights = np.zeros((num_nodes, max_connections_per_node))
     # Relies on weights being 0 for input_locs that don't exist
     input_locs = np.zeros((num_nodes, max_connections_per_node), dtype=int)
-    output_locs = np.zeros((num_nodes, max_connections_per_node), dtype=int)
     node_values = np.zeros((num_nodes))
     num_node_input_locs = np.zeros((num_nodes), dtype=int)
-    num_node_output_locs = np.zeros((num_nodes), dtype=int)
 
     i = 0
     j = 0
-    output_locs_array = []
-    for _ in range(num_nodes):
-        output_locs_array.append([])
     for inputting_node_key, inputting_node in nodes.items():
         j = 0
         input_locs_for_node = []
@@ -149,25 +118,19 @@ def get_nodes():
                 break
             weights[i][j] = connection["weight"]
             input_locs_for_node.append(outputting_node_key)
-            output_locs_array[outputting_node_key].append(inputting_node_key)
             j += 1
         input_locs[i][:len(input_locs_for_node)] = input_locs_for_node
         node_values[i] = inputting_node["value"]
         num_node_input_locs[i] = len(input_locs_for_node)
         i += 1
-    for itr in range(num_nodes):
-        num_node_output_locs[itr] = len(output_locs_array[itr])
-        output_locs[itr, :len(output_locs_array[itr])] = output_locs_array[itr]
 
     print("Init weights:{0}".format(weights))
     print("Init values:{0}".format(node_values[NUM_INPUT_ONLY_NODES:]), flush=True)
     return {
         "input_locs": input_locs,
-        "output_locs": output_locs,
         "nodes": nodes,
         "node_values": node_values,
         "num_node_input_locs": num_node_input_locs,
-        "num_node_output_locs": num_node_output_locs,
         "weights": weights
     }
 
@@ -184,10 +147,12 @@ def save_nodes(nodes, weights, node_values):
     sqlite_db_ai.save_nodes(nodes)
 
 def get_audio_output(node_values):
-    output_values = node_values[-NUM_INPUT_ONLY_NODES:]
+    output_values = np.copy(node_values[-NUM_INPUT_ONLY_NODES:])
+    output_values *= 256
     output_values = np.round(output_values)
     output_values = output_values.astype(np.int16)
     output_values[output_values < 0] = 0
+    output_values[output_values > 255] = 255
     return output_values
 
 def print_node_values(node_values):
@@ -209,11 +174,9 @@ def data_manager_main(data_manager_child_conn):
     global DO_LOG_TIME
     node_data = get_nodes()
     input_locs = node_data["input_locs"]
-    output_locs = node_data["output_locs"]
     nodes = node_data["nodes"]
     node_values = node_data["node_values"]
     num_node_input_locs = node_data["num_node_input_locs"]
-    num_node_output_locs = node_data["num_node_output_locs"]
     weights = node_data["weights"]
     orig_weights = weights.copy()
 
@@ -236,10 +199,8 @@ def data_manager_main(data_manager_child_conn):
             audio_callback(in_data=audio_data,
                 weights=weights,
                 input_locs=input_locs,
-                output_locs=output_locs,
                 node_values=node_values,
-                num_node_input_locs=num_node_input_locs,
-                num_node_output_locs=num_node_output_locs)
+                num_node_input_locs=num_node_input_locs)
             if do_save_recording:
                 recording_frames.append(audio_data)
             audio_output = get_audio_output(node_values)
